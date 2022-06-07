@@ -1,18 +1,40 @@
 #include "mbed.h"
 #include "Adafruit_SSD1306.h"
+#include "TRSensors.h"
 
+#define NUM_SENSORS 5
+
+#define PWMA D6
+#define AIN2 A0 // MOTOR - L FORWARD
+#define AIN1 A1 // MOTOR - L BACKWARD
+
+#define BIN1 A2 // MOTOR - R FORWARD
+#define BIN2 A3 // MOTOR - R BACKWARD
+#define PWMB D5
 
 BufferedSerial pc(CONSOLE_TX, CONSOLE_RX, 115200);
 
 I2C i2c(D14, D15);
 Adafruit_SSD1306_I2c oled(i2c, D9, 0x78, 64, 128);
 
-
 Thread tcp_thread;
 ATCmdParser *parser;
 BufferedSerial wifi(PA_11, PA_12, 115200);
+
 int _id, _len;
 char buffer[128], msg[128];
+
+PwmOut left(PWMA);
+PwmOut right(PWMB);
+
+DigitalOut left_fwd(AIN2);
+DigitalOut left_bwd(AIN1);
+
+DigitalOut right_fwd(BIN1);
+DigitalOut right_bwd(BIN2);
+
+TRSensors trs = TRSensors();
+unsigned int sensorValues[NUM_SENSORS];
 
 void tcp(){
     parser = new ATCmdParser(&wifi, "\r\n");
@@ -116,7 +138,27 @@ void tcp(){
                         parser->recv("SEND OK");
                         
                         //TODO run the command 
-                        
+                        if (strstr(msg, "READ LINE") != NULL) {
+                            unsigned long position = trs.readLine(sensorValues);
+                            sprintf(msg, "%d %d %d %d %d -> %ld\r\n", sensorValues[0],sensorValues[1],sensorValues[2],sensorValues[3],sensorValues[4],position);
+                            
+                            parser->send("AT+CIPSEND=%d,%d", _id, strlen(msg));
+                            parser->recv("OK");
+                            parser->send("%s", msg);
+                            parser->recv("Recv %d bytes", &_len);
+                            parser->recv("SEND OK");
+                        }
+                        else if (strstr(msg, "CALIBRATE") != NULL) {
+                            for (int i = 0; i < 100; i ++) {
+                                trs.calibrate();   
+                            }   
+                            sprintf(msg, "CALIBRATION DONE\r\n");
+                            parser->send("AT+CIPSEND=%d,%d", _id, strlen(msg));
+                            parser->recv("OK");
+                            parser->send("%s", msg);
+                            parser->recv("Recv %d bytes", &_len);
+                            parser->recv("SEND OK");
+                        }
                     }
                 }
             }
@@ -136,8 +178,8 @@ int main(){
     
     tcp_thread.start(&tcp);
 
-    while() {
-         
+    while(1) {
+    
     }
 
 
