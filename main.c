@@ -21,11 +21,11 @@ ATCmdParser *parser;
 
 
 /*****  alphbot contorl variables  *****/
-volatile float P_TERM = 0.8;
-volatile float I_TERM = 0;
-volatile float D_TERM = 0;
-volatile float speed_left = 0.392;
-volatile float speed_right = 0.4;
+volatile float P_TERM = 0.5; //0.5
+volatile float I_TERM = 0.01; //0.01
+volatile float D_TERM = 1; //1
+volatile float speed_left = 0.65;//0.65
+volatile float speed_right = 0.655;//0.655;
 
 
 /*****  alphabot motor control  *****/
@@ -82,14 +82,14 @@ void manual_control(){
             if(strcmp(msg, "go_forward\r\n") == 0){
                 pc.write("for\r\n", 5);
                 print_oled("for\r\n");
-                left_forw(speed_left);
-                right_forw(speed_right);
+                left_forw(speed_left * speed_left);
+                right_forw(speed_right * speed_right);
             }
             else if(strcmp(msg, "go_back\r\n") == 0){
                 pc.write("bac\r\n", 5);
                 print_oled("bac\r\n");
-                left_back(speed_left);
-                right_back(speed_left);
+                left_back(speed_left * speed_left);
+                right_back(speed_right * speed_right);
             }
             else if(strcmp(msg, "go_right\r\n") == 0){
                 pc.write("rig\r\n", 5);
@@ -247,9 +247,6 @@ void setup_value(char* msg){
         sprintf(msg, "GO ALPHABOT2\r\n");
         flag_go = 1;
     }
-    else if (msg[0] == 'S'){
-        sprintf(msg, "STOP ALPHABOT2\r\n");
-    }
     else if (strstr(msg, "PID") != NULL) {
         sprintf(msg,"send pid back\r\n");
     }
@@ -311,9 +308,8 @@ void right_forw(float _right){
 
 void run_bot(){
     char run_buf[128];
-    int position, pid_calculated=0;
+    float position, pid_calculated=0;
     float _left_value, _right_value, normalize = 2000.0;
-    float speed_inc = 0;
     integral = derivative = my_error = prev_error = 0;
     while(1){
         position = trs.readLine(sensorValues);
@@ -324,28 +320,37 @@ void run_bot(){
         integral += my_error;
         derivative = prev_error - my_error;
         prev_error = my_error;
-
+        if(-50 < my_error && my_error < 50 && -50 < derivative && derivative < 50) {
+            sprintf(run_buf, "HERE");
+            print_oled(run_buf);
+            integral = 0;
+        }
         pid_calculated =  (P_TERM * my_error) + (I_TERM * integral) - (derivative * D_TERM);
+        // e ^ error + integral - deriavtive
+
+
         if(pid_calculated < 0){ // should turn left
-            _left_value = speed_left + pid_calculated / normalize * speed_left;
-            _right_value = speed_right;
-            left_forw(_left_value);
-            right_forw(_right_value);
+            _left_value = 1 + pid_calculated / normalize;
+            _right_value = 1;
+            left_forw((_left_value * speed_left) * (_left_value * speed_left));
+            right_forw(_right_value * speed_right * speed_right);
         } 
         else{ // shoudl turn right
-            _left_value = speed_left;
-            _right_value = speed_right - pid_calculated / normalize * speed_right;
-            left_forw(_left_value);
-            right_forw(_right_value);
+            _left_value = 1;
+            _right_value = 1 - pid_calculated / normalize;
+            left_forw(_left_value * speed_left * speed_left);I
+            right_forw((_right_value * speed_right) * (_right_value * speed_right));
         }
-        sprintf(run_buf, "left = %.2f right = %.2f\r\n", _left_value, _right_value);
+        //sprintf(run_buf, "left = %.2f right = %.2f\r\n", _left_value, _right_value);
         //pc.write(run_buf, strlen(run_buf));
         //send_msg(run_buf);
-        print_oled(run_buf);
-
+        //print_oled(run_buf);
+        
+        
         if(srf05.read() < 7){
             left_forw(0);
             right_forw(0);
+            
             break;
         }
     }
