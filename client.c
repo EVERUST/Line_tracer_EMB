@@ -7,6 +7,8 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
+#define IP "192.168.137.187"
+
 typedef struct sockaddr_in sockaddr_in;
 typedef struct sockaddr sockaddr;
 #define BUFSIZE 256
@@ -16,6 +18,7 @@ typedef struct sockaddr sockaddr;
 #define GO_L "go_left\r\n"
 #define GO_S "go_stop\r\n"
 #define GO_E "go_end\r\n"
+
 
 void recv_from_client(int clnt_sock, char * buffer){
 	char from_bot[BUFSIZE];
@@ -47,7 +50,7 @@ main(int argc, char **argv)
 
 	memset(&serv_addr, 0, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = inet_addr("192.168.137.17");
+	serv_addr.sin_addr.s_addr = inet_addr(IP);
 	serv_addr.sin_port = htons(50000);
 
 	if(connect(sock, (sockaddr*)&serv_addr, sizeof(serv_addr)) == -1){
@@ -87,15 +90,16 @@ main(int argc, char **argv)
             char buf[128];
             c = getchar();
             printf("INPUT COMMAND: \n");
-            printf("P - p term\nI - i term\nD - d term\nR - right speed\nL - left speed");
+            printf("P - p term\nI - i term\nD - d term\nR - right speed\nL - left speed\n");
             scanf("%c", &c);
             printf("input value: ");
             scanf("%f", &val);
-            if(c == 'P'){ sprintf(buf, "P=%d\r\n", (int)val); }
-            else if(c == 'I'){ sprintf(buf, "I=%d\r\n", (int)val); }
-            else if(c == 'D'){ sprintf(buf, "D=%d\r\n", (int)val); }
+            if(c == 'P'){ sprintf(buf, "P=%f\r\n", val); }
+            else if(c == 'I'){ sprintf(buf, "I=%f\r\n", val); }
+            else if(c == 'D'){ sprintf(buf, "D=%f\r\n", val); }
             else if(c == 'R'){ sprintf(buf, "SR=%f\r\n", val); }
             else if(c == 'L'){ sprintf(buf, "SL=%f\r\n", val); }
+            printf("%s\n", buf);
             write(sock, buf, strlen(buf));
         }
         
@@ -107,5 +111,4 @@ main(int argc, char **argv)
 	puts("terminating...");
 	close(sock);
 }
-
 
