@@ -2,6 +2,7 @@
 #include "platform/ATCmdParser.h"
 #include "Adafruit_SSD1306.h"
 #include "TRSensors.h"
+#include "SRF05.h"
 
 #define NUM_SENSORS 5
 #define PWMA D6
@@ -10,7 +11,8 @@
 #define BIN1 A2 // MOTOR - R FORWARD
 #define BIN2 A3 // MOTOR - R BACKWARD
 #define PWMB D5
-#define MAX 255
+#define MAX 25500
+#define INTEGRAL_MAX 1e16
 
 /*****  wifi connection  *****/
 BufferedSerial pc(CONSOLE_TX, CONSOLE_RX, 115200);
@@ -22,7 +24,8 @@ ATCmdParser *parser;
 volatile int P_TERM = 20;
 volatile int I_TERM = 10000;
 volatile int D_TERM = 10;
-volatile float speed = 1.0;
+volatile float speed_left = 0.4;
+volatile float speed_right = 0.35;
 
 
 /*****  alphabot motor control  *****/
@@ -43,18 +46,19 @@ Adafruit_SSD1306_I2c oled(i2c, D9, 0x78, 64, 128);
 /*****  alphabot sensors  *****/
 TRSensors trs = TRSensors();
 unsigned int sensorValues[NUM_SENSORS];
-
+SRF05 srf05(ARDUINO_UNO_D3, ARDUINO_UNO_D2);
 
 
 /*****  global variable  *****/
 volatile unsigned int last_proportional = 0;
 volatile long integral = 0;
-volatile int proportional;
+volatile int my_error;
 volatile int derivative;
 volatile bool go = false;
 // wifi variable
 char buffer[128], msg[128], ip[128];
 int _id, _len;
+int flag_go = 0;
 
 
 
@@ -85,41 +89,41 @@ void manual_control(){
             }
             else if(strcmp(msg, "go_back\r\n") == 0){
                 pc.write("bac\r\n", 5);
-                print_oled("for\r\n");
+                print_oled("bac\r\n");
                 left_back(0.2);
                 right_back(0.2);
             }
             else if(strcmp(msg, "go_right\r\n") == 0){
                 pc.write("rig\r\n", 5);
-                print_oled("for\r\n");
+                print_oled("rig\r\n");
                 left_forw(0.1);
                 right_back(0.1);
             }
             else if(strcmp(msg, "go_left\r\n") == 0){
                 pc.write("lef\r\n", 5);
-                print_oled("for\r\n");
+                print_oled("lef\r\n");
                 left_back(0.1);
                 right_forw(0.1);
             }
             else if(strcmp(msg, "go_stop\r\n") == 0){
                 pc.write("stp\r\n", 5);
-                print_oled("for\r\n");
+                print_oled("stp\r\n");
                 left_back(0);
                 right_back(0);
             }
             else if(strcmp(msg, "go_end\r\n") == 0){
                 pc.write("end\r\n", 5);
-                print_oled("for\r\n");
+                print_oled("end\r\n");
                 return;
             }
             else{
                 pc.write("read error\r\n", 12);
-                print_oled("for\r\n");
+                print_oled("read error\r\n");
             }
         }
         else{
             pc.write("error\r\n", 7);
-            print_oled("for\r\n");
+            print_oled("error\r\n");
         }
     }
 }
@@ -198,18 +202,36 @@ void setup_server(){
         print_oled("set a TCP server\r\n"); 
         break;
     }
+    sprintf(buffer, "Waiting for new connection...\r\nip - %s\r\n", ip);
+    pc.write(buffer, strlen(buffer));
+    print_oled(buffer);
+    while(1){
+        if(parser->recv("%d,CONNECT", &_id)){
+            pc.write("connection request from a client\r\n", 35);
+            print_oled("conenction requets form a client\r\n");
+            break;
+        }
+    }
 }
 
 void setup_value(char* msg){
     if (msg[0] == 'R'){
-        sprintf(msg, "send r back\r\n");
+        unsigned long position = trs.readLine(sensorValues);
+        sprintf(msg, "read %d %d %d %d %d -> %ld\r\n", sensorValues[0],
+                sensorValues[1],sensorValues[2],sensorValues[3],sensorValues[4],position);
     }
     else if (msg[0] == 'C'){
         sprintf(msg, "CALIBRATION DONE\r\n");
+        for (int i = 0; i < 100; i ++) 
+            trs.calibrate();   
     }
-    else if (strstr(msg, "SPEED=") != NULL) {
-        sscanf(msg, "SPEED=%f", &speed);
-        sprintf(msg, "SET SPEED DONE = %.2f\r\n", speed);
+    else if (strstr(msg, "SL=") != NULL) {
+        sscanf(msg, "SL=%f", &speed_left);
+        sprintf(msg, "SET LEFT SPEED DONE = %.2f\r\n", speed_left);
+    }
+    else if (strstr(msg, "SR=") != NULL) {
+        sscanf(msg, "SR=%f", &speed_right);
+        sprintf(msg, "SET RIGHT SPEED DONE = %.2f\r\n", speed_right);
     }
     else if (strstr(msg, "P=") != NULL) {
         sscanf(msg, "P=%d", &P_TERM);
@@ -225,6 +247,7 @@ void setup_value(char* msg){
     }
     else if (msg[0] == 'G'){
         sprintf(msg, "GO ALPHABOT2\r\n");
+        flag_go = 1;
     }
     else if (msg[0] == 'S'){
         sprintf(msg, "STOP ALPHABOT2\r\n");
@@ -243,28 +266,23 @@ void setup_value(char* msg){
 }
 
 void setup_bot(){
-    sprintf(buffer, "Waiting for new connection...\r\nip - %s\r\n", ip);
-    pc.write(buffer, strlen(buffer));
-    print_oled(buffer);
     while(1){
-        if(parser->recv("%d,CONNECT", &_id)){
-            pc.write("connection request from a client\r\n", 35);
-            print_oled("conenction requets form a client\r\n");
-            while(1){
-                if(parser->recv("%[^\n]\n", buffer)){
-                    if(strstr(buffer, "CLOSED") != NULL) {
-                        sprintf(buffer, "Connection closed\r\nWaiting for new connection...\r\n");
-                        pc.write(buffer, strlen(buffer));
-                        print_oled(buffer);
-                        break;
-                    }
-                    else {
-                        sscanf(buffer, "+IPD,%d,%d:%[^\n]\n", &_id, &_len, msg);
-                        sprintf(msg, "%s\r\n", msg);
-                        pc.write(msg, strlen(msg));
-                        print_oled(msg);
-                        setup_value(msg);
-                    }
+        if(parser->recv("%[^\n]\n", buffer)){
+            if(strstr(buffer, "CLOSED") != NULL) {
+                sprintf(buffer, "Connection closed\r\nWaiting for new connection...\r\n");
+                pc.write(buffer, strlen(buffer));
+                print_oled(buffer);
+                break;
+            }
+            else {
+                sscanf(buffer, "+IPD,%d,%d:%[^\n]\n", &_id, &_len, msg);
+                sprintf(msg, "%s\r\n", msg);
+                pc.write(msg, strlen(msg));
+                print_oled(msg);
+                setup_value(msg);
+                if(flag_go == 1){
+                    flag_go = 0;
+                    return;
                 }
             }
         }
@@ -293,35 +311,47 @@ void right_forw(float _right){
 }
 
 void run_bot(){
+    char run_buf[128];
+    integral = derivative = my_error = last_proportional = 0;
     while(1){
         unsigned int position = trs.readLine(sensorValues);
         
         //Range of proportional might be (-2000,2000) 
-        proportional = (int)position - 2000;
-        derivative = proportional - last_proportional;
-        integral += proportional;
+        my_error = (int)position - 2000;
+        /*
+        derivative = my_error - last_proportional;
+        integral += my_error;
+        if(integral > INTEGRAL_MAX) integral = INTEGRAL_MAX;
+        else if(integral < 0 -INTEGRAL_MAX) integral = 0-INTEGRAL_MAX;
         
-        last_proportional = proportional;
-        float power_difference = proportional/P_TERM + integral/I_TERM + derivative*D_TERM;
+        last_proportional = my_error;
+        float power_difference = my_error/P_TERM + integral/I_TERM + derivative*D_TERM; // 20, 10000, 10
+        sprintf(run_buf, "%d %ld %d power_diff : %.2f", my_error, integral, derivative, power_difference);
+        pc.write(run_buf, strlen(run_buf));
         
         //int sum = power_difference + MAX
-        if (power_difference > MAX)
-            power_difference = MAX;
-        if (power_difference < (MAX) * (-1))
-            power_difference = (MAX) * (-1);
+        if (power_difference > MAX) power_difference = MAX;
+        if (power_difference < (MAX) * (-1)) power_difference = (MAX) * (-1);
+        
+        sprintf(run_buf, "   power_diff : %.2f\r\n", power_difference);
+        pc.write(run_buf, strlen(run_buf));
         
         float left_value, right_value;
         if (power_difference < 0) {
             left_value = (float) (MAX + power_difference) / MAX;
             right_value = (float) MAX / MAX;
-            left = left_value * speed;
-            right = right_value * speed;
+            // left = left_value * speed_left;
+            // right = right_value * speed_right;
+            left_forw(left_value * speed_left);
+            right_forw(right_value * speed_right);
         } 
         else {
             left_value = (float) MAX / MAX;
             right_value = (float) (MAX - power_difference) / MAX;
-            left = left_value * speed;
-            right = right_value * speed;
+            // left = left_value * speed_left;
+            // right = right_value * speed_right;
+            left_forw(left_value * speed_left);
+            right_forw(right_value * speed_right);
         }   
         
         if(sensorValues[1] > 900 && sensorValues[2] > 900 && sensorValues[3] > 900) {
@@ -330,10 +360,31 @@ void run_bot(){
             left = 0;
             right = 0;   
         }
+        */
         
-        oled.setTextCursor(0, 0);
-        oled.printf("left = %.2f \r\nright = %.2f\r\n", left_value, right_value);
-        oled.display();
+        float left_value, right_value;
+        if(my_error < 0){ // should turn left
+            left_value = 1 + my_error/2000.0;
+            right_value = 1;
+            left_forw(speed_left * left_value);
+            right_forw(speed_right * right_value);
+        } 
+        else{ // shoudl turn right
+            left_value = 1;
+            right_value = 1 - my_error/2000.0;
+            left_forw(speed_left * 1);
+            right_forw(speed_right * right_value);
+
+        }
+        sprintf(run_buf, "left = %.2f right = %.2f ultra = %.2f\r\n", left_value, right_value, srf05.read());
+        pc.write(run_buf, strlen(run_buf));
+        //send_msg(run_buf);
+        print_oled(run_buf);
+        if(srf05.read() < 5){
+            left_forw(0);
+            right_forw(0);
+            break;
+        }
     }
 }
 
@@ -344,7 +395,7 @@ void print_oled(char* _buf){
     oled.display();
 }
 
-int main()
+int main(){
     oled.begin(SSD1306_SWITCHCAPVCC);
     oled.clearDisplay();
     oled.setTextCursor(0, 0);

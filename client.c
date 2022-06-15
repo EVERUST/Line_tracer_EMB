@@ -47,7 +47,7 @@ main(int argc, char **argv)
 
 	memset(&serv_addr, 0, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = inet_addr("192.168.137.251");
+	serv_addr.sin_addr.s_addr = inet_addr("192.168.137.17");
 	serv_addr.sin_port = htons(50000);
 
 	if(connect(sock, (sockaddr*)&serv_addr, sizeof(serv_addr)) == -1){
@@ -78,21 +78,24 @@ main(int argc, char **argv)
                 else if(c == 'q'){ write(sock, GO_E, strlen(GO_E)); break; }
             }
             system("/bin/stty cooked");
+            recv_from_client(sock, buffer);
+            printf("--%s**\n", buffer);
             continue;
         }
         else if(c == 'I'){
-            int val;
-            char buf[10];
+            float val;
+            char buf[128];
             c = getchar();
             printf("INPUT COMMAND: \n");
-            printf("P - p term\nI - i term\nD - d term\nS - speed\n");
+            printf("P - p term\nI - i term\nD - d term\nR - right speed\nL - left speed");
             scanf("%c", &c);
             printf("input value: ");
-            scanf("%d", &val);
-            if(c == 'P'){ sprintf(buf, "P=%d\r\n", val); }
-            else if(c == 'I'){ sprintf(buf, "I=%d\r\n", val); }
-            else if(c == 'D'){ sprintf(buf, "D=%d\r\n", val); }
-            else if(c == 'S'){ sprintf(buf, "SPEED=%d\r\n", val); }
+            scanf("%f", &val);
+            if(c == 'P'){ sprintf(buf, "P=%d\r\n", (int)val); }
+            else if(c == 'I'){ sprintf(buf, "I=%d\r\n", (int)val); }
+            else if(c == 'D'){ sprintf(buf, "D=%d\r\n", (int)val); }
+            else if(c == 'R'){ sprintf(buf, "SR=%f\r\n", val); }
+            else if(c == 'L'){ sprintf(buf, "SL=%f\r\n", val); }
             write(sock, buf, strlen(buf));
         }
         
