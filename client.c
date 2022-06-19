@@ -7,7 +7,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 
-#define IP "192.168.137.167"
+#define IP "192.168.137.83"
 
 typedef struct sockaddr_in sockaddr_in;
 typedef struct sockaddr sockaddr;

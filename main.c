@@ -12,7 +12,6 @@
 #define BIN2 A3 // MOTOR - R BACKWARD
 #define PWMB D5
 #define MAX 25500
-#define INTEGRAL_MAX 1e16
 
 /*****  wifi connection  *****/
 BufferedSerial pc(CONSOLE_TX, CONSOLE_RX, 115200);
@@ -21,11 +20,12 @@ ATCmdParser *parser;
 
 
 /*****  alphbot contorl variables  *****/
-volatile float P_TERM = 0.5; //0.5
-volatile float I_TERM = 0.01; //0.01
-volatile float D_TERM = 1; //1
-volatile float speed_left = 0.65;//0.65
-volatile float speed_right = 0.655;//0.655;
+volatile float P_TERM = 0.45; //0.5
+volatile float I_TERM = 0.04; //0.01
+volatile float D_TERM = 0.5; //1
+volatile long INTEGRAL_MAX = 100000;
+volatile float speed_left = 0.4225; //0.65;//0.65
+volatile float speed_right = 0.429; //0.655;//0.655;
 
 
 /*****  alphabot motor control  *****/
@@ -51,9 +51,9 @@ SRF05 srf05(ARDUINO_UNO_D3, ARDUINO_UNO_D2);
 
 /*****  global variable  *****/
 volatile long integral;
-volatile float prev_error, my_error, derivative;
+volatile float prev_error, curr_error, derivative;
 // wifi variable
-char buffer[128], msg[128], ip[128];
+char buffer[128], ip[128];
 int client_id;
 volatile int flag_go = 0;
 
@@ -73,43 +73,44 @@ void print_oled(char* _buf);
 
 void manual_control(){
     int _len;
+    char _msg[256];
     while(1){
         if(parser->recv("%[^\n]\n", buffer)){
-            sscanf(buffer, "+IPD,%d,%d:%[^\n]\n", &client_id, &_len, msg);
-            sprintf(msg, "%s\r\n", msg);
-            pc.write(msg, strlen(msg));
-            print_oled(msg);
-            if(strcmp(msg, "go_forward\r\n") == 0){
+            sscanf(buffer, "+IPD,%d,%d:%[^\n]\n", &client_id, &_len, _msg);
+            sprintf(_msg, "%s\r\n", _msg);
+            pc.write(_msg, strlen(_msg));
+            print_oled(_msg);
+            if(strcmp(_msg, "go_forward\r\n") == 0){
                 pc.write("for\r\n", 5);
                 print_oled("for\r\n");
                 left_forw(speed_left * speed_left);
                 right_forw(speed_right * speed_right);
             }
-            else if(strcmp(msg, "go_back\r\n") == 0){
+            else if(strcmp(_msg, "go_back\r\n") == 0){
                 pc.write("bac\r\n", 5);
                 print_oled("bac\r\n");
                 left_back(speed_left * speed_left);
                 right_back(speed_right * speed_right);
             }
-            else if(strcmp(msg, "go_right\r\n") == 0){
+            else if(strcmp(_msg, "go_right\r\n") == 0){
                 pc.write("rig\r\n", 5);
                 print_oled("rig\r\n");
                 left_forw(0.1);
                 right_back(0.1);
             }
-            else if(strcmp(msg, "go_left\r\n") == 0){
+            else if(strcmp(_msg, "go_left\r\n") == 0){
                 pc.write("lef\r\n", 5);
                 print_oled("lef\r\n");
                 left_back(0.1);
                 right_forw(0.1);
             }
-            else if(strcmp(msg, "go_stop\r\n") == 0){
+            else if(strcmp(_msg, "go_stop\r\n") == 0){
                 pc.write("stp\r\n", 5);
                 print_oled("stp\r\n");
                 left_back(0);
                 right_back(0);
             }
-            else if(strcmp(msg, "go_end\r\n") == 0){
+            else if(strcmp(_msg, "go_end\r\n") == 0){
                 pc.write("end\r\n", 5);
                 print_oled("end\r\n");
                 return;
@@ -212,56 +213,57 @@ void setup_server(){
     }
 }
 
-void setup_value(char* msg){
-    if (msg[0] == 'R'){
+void setup_value(char* _msg){
+    if (_msg[0] == 'R'){
         unsigned long position = trs.readLine(sensorValues);
-        sprintf(msg, "read %d %d %d %d %d -> %ld\r\n", sensorValues[0],
+        sprintf(_msg, "read %d %d %d %d %d -> %ld\r\n", sensorValues[0],
                 sensorValues[1],sensorValues[2],sensorValues[3],sensorValues[4],position);
     }
-    else if (msg[0] == 'C'){
-        sprintf(msg, "CALIBRATION DONE\r\n");
+    else if (_msg[0] == 'C'){
+        sprintf(_msg, "CALIBRATION DONE\r\n");
         for (int i = 0; i < 100; i ++) 
             trs.calibrate();   
     }
-    else if (strstr(msg, "SL=") != NULL) {
-        sscanf(msg, "SL=%f", &speed_left);
-        sprintf(msg, "SET LEFT SPEED DONE = %.2f\r\n", speed_left);
+    else if (strstr(_msg, "SL=") != NULL) {
+        sscanf(_msg, "SL=%f", &speed_left);
+        sprintf(_msg, "SET LEFT SPEED DONE = %.2f\r\n", speed_left);
     }
-    else if (strstr(msg, "SR=") != NULL) {
-        sscanf(msg, "SR=%f", &speed_right);
-        sprintf(msg, "SET RIGHT SPEED DONE = %.2f\r\n", speed_right);
+    else if (strstr(_msg, "SR=") != NULL) {
+        sscanf(_msg, "SR=%f", &speed_right);
+        sprintf(_msg, "SET RIGHT SPEED DONE = %.2f\r\n", speed_right);
     }
-    else if (strstr(msg, "P=") != NULL) {
-        sscanf(msg, "P=%f", &P_TERM);
-        sprintf(msg, "SET P_TERM DONE= %f\r\n", P_TERM);
+    else if (strstr(_msg, "P=") != NULL) {
+        sscanf(_msg, "P=%f", &P_TERM);
+        sprintf(_msg, "SET P_TERM DONE= %f\r\n", P_TERM);
     }
-    else if (strstr(msg, "I=") != NULL) {
-        sscanf(msg, "I=%f", &I_TERM);
-        sprintf(msg, "SET I_TERM DONE= %f\r\n", I_TERM);
+    else if (strstr(_msg, "I=") != NULL) {
+        sscanf(_msg, "I=%f", &I_TERM);
+        sprintf(_msg, "SET I_TERM DONE= %f\r\n", I_TERM);
     }
-    else if (strstr(msg, "D=") != NULL) {
-        sscanf(msg, "D=%f", &D_TERM);
-        sprintf(msg, "SET D_TERM DONE= %f\r\n", D_TERM);
+    else if (strstr(_msg, "D=") != NULL) {
+        sscanf(_msg, "D=%f", &D_TERM);
+        sprintf(_msg, "SET D_TERM DONE= %f\r\n", D_TERM);
     }
-    else if (msg[0] == 'G'){
-        sprintf(msg, "GO ALPHABOT2\r\n");
+    else if (_msg[0] == 'G'){
+        sprintf(_msg, "GO ALPHABOT2\r\n");
         flag_go = 1;
     }
-    else if (strstr(msg, "PID") != NULL) {
-        sprintf(msg,"send pid back\r\n");
+    else if (strstr(_msg, "PID") != NULL) {
+        sprintf(_msg,"send pid back\r\n");
     }
-    else if (msg[0] == 'M'){
+    else if (_msg[0] == 'M'){
         manual_control();
-        sprintf(msg, "got M\r\n");
+        sprintf(_msg, "got M\r\n");
     }
-    else sprintf(msg, "syntax err\r\n");
-    pc.write(msg, strlen(msg));
-    print_oled(msg);
-    send_msg(msg);
+    else sprintf(_msg, "syntax err\r\n");
+    pc.write(_msg, strlen(_msg));
+    print_oled(_msg);
+    send_msg(_msg);
 }
 
 void setup_bot(){
     int _len;
+    char _msg[256];
     while(1){
         if(parser->recv("%[^\n]\n", buffer)){
             if(strstr(buffer, "CLOSED") != NULL) {
@@ -271,11 +273,11 @@ void setup_bot(){
                 break;
             }
             else {
-                sscanf(buffer, "+IPD,%d,%d:%[^\n]\n", &client_id, &_len, msg);
-                sprintf(msg, "%s\r\n", msg);
-                pc.write(msg, strlen(msg));
-                print_oled(msg);
-                setup_value(msg);
+                sscanf(buffer, "+IPD,%d,%d:%[^\n]\n", &client_id, &_len, _msg);
+                sprintf(_msg, "%s\r\n", _msg);
+                pc.write(_msg, strlen(_msg));
+                print_oled(_msg);
+                setup_value(_msg);
                 if(flag_go == 1){
                     flag_go = 0;
                     return;
@@ -306,51 +308,56 @@ void right_forw(float _right){
     right = _right;
 }
 
+inline float square(float x){
+    return x * x;
+}
 void run_bot(){
     char run_buf[128];
     float position, pid_calculated=0;
     float _left_value, _right_value, normalize = 2000.0;
-    integral = derivative = my_error = prev_error = 0;
+    integral = derivative = curr_error = prev_error = 0;
+    int p_flag = 0;
     while(1){
         position = trs.readLine(sensorValues);
         
         // Range of proportional might be (-2000,2000) 
         // position being 2000 means that the bot is going toward our desired direction
-        my_error = (int)position - 2000;
-        integral += my_error;
-        derivative = prev_error - my_error;
-        prev_error = my_error;
-        if(-50 < my_error && my_error < 50 && -50 < derivative && derivative < 50) {
-            sprintf(run_buf, "HERE");
-            print_oled(run_buf);
-            integral = 0;
-        }
-        pid_calculated =  (P_TERM * my_error) + (I_TERM * integral) - (derivative * D_TERM);
-        // e ^ error + integral - deriavtive
+        curr_error = position - 2000.0;
+        integral += curr_error;
+        derivative = prev_error - curr_error;
+        prev_error = curr_error;
 
+        if((integral < 0 && curr_error > 0) || (integral > 0 && curr_error < 0)){
+            integral /= 2;
+            if(integral < curr_error * -1)
+                integral = 0;
+        }
+        if(integral > INTEGRAL_MAX) integral = INTEGRAL_MAX;
+        p_flag = 0;
+        if(curr_error > 1500 || curr_error < -1500) p_flag = 1;
+        pid_calculated =  (p_flag * P_TERM * curr_error) + (I_TERM * integral) - (derivative * D_TERM);
 
         if(pid_calculated < 0){ // should turn left
             _left_value = 1 + pid_calculated / normalize;
             _right_value = 1;
-            left_forw((_left_value * speed_left) * (_left_value * speed_left));
-            right_forw(_right_value * speed_right * speed_right);
+            left_forw(square(_left_value) * _left_value * speed_left);
+            right_forw(speed_right);
         } 
         else{ // shoudl turn right
             _left_value = 1;
             _right_value = 1 - pid_calculated / normalize;
-            left_forw(_left_value * speed_left * speed_left);I
-            right_forw((_right_value * speed_right) * (_right_value * speed_right));
+            left_forw(speed_left);
+            right_forw(square(_right_value) * _right_value * speed_right);
         }
-        //sprintf(run_buf, "left = %.2f right = %.2f\r\n", _left_value, _right_value);
+        sprintf(run_buf, "left = %.2f right = %.2f\r\n", _left_value, _right_value);
         //pc.write(run_buf, strlen(run_buf));
         //send_msg(run_buf);
-        //print_oled(run_buf);
+        print_oled(run_buf);
         
         
-        if(srf05.read() < 7){
+        if(srf05.read() < 10){
             left_forw(0);
             right_forw(0);
-            
             break;
         }
     }
