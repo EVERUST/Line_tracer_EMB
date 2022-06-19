@@ -1,0 +1,31 @@
+{
+    "config": {
+        "wifi-shield": {
+            "help": "Options are internal, WIFI_ESP8266, WIFI_IDWOXX1",
+            "value": "WIFI_ESP8266"
+        },
+        "wifi_ssid": {
+            "help": "WiFi SSID",
+            "value": "\"wifi_ssid\""
+        },
+        "wifi-password": {
+            "help": "WiFi Password",
+            "value": "\"wifi_password\""
+        },
+        "wifi-tx": {
+            "help": "TX pin for serial connection to external device",
+            "value": "PA_9"
+        },
+        "wifi-rx": {
+            "help": "RX pin for serial connection to external device",
+            "value": "PA_10"
+        }
+    },
+    "target_overrides": {
+        "*": {
+            "platform.stdio-convert-newlines": true,
+            "esp8266.provide-default": true,
+            "target.printf_lib": "std"
+        }
+    }
+}
